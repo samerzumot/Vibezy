@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "name": "vibezy",
+  "routes": [
+    { "src": "/(.*)", "dest": "/$1" }
+  ]
+}
