@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="description" content="Vibezy — Anonymous nightlife discovery. Share 15–30s vibe videos, explore venues on a live map, no accounts required." />
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <title>Vibezy — Anonymous Nightlife Map</title>
+
+  <!-- Leaflet (OpenStreetMap) -->
+  <link rel="preconnect" href="https://tile.openstreetmap.org" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin="anonymous"
+  />
+
+  <!-- App Styles -->
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Fullscreen Map -->
+    <div id="map-container" role="application" aria-label="Map showing venues"></div>
+
+    <!-- Floating Record Button -->
+    <button id="record-btn" class="floating-btn" aria-label="Record video" title="Record video">📹</button>
+
+    <!-- Video Record/Preview Modal -->
+    <div id="video-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="recording-title">
+      <div class="modal-content" role="document">
+        <header class="modal-header">
+          <h2 id="recording-title">Record the vibe</h2>
+          <button id="close-modal" class="icon-btn" aria-label="Close">✕</button>
+        </header>
+        <div class="modal-body">
+          <div class="video-container">
+            <video id="record-preview" playsinline muted></video>
+            <div id="record-overlay" class="record-overlay hidden">
+              <div class="pulse-dot"></div>
+              <span id="timer" aria-live="polite">00:00</span>
+            </div>
+          </div>
+          <div id="record-controls" class="record-controls">
+            <button id="start-record" class="primary-btn" aria-label="Start recording">Start</button>
+            <button id="stop-record" class="danger-btn" aria-label="Stop recording" disabled>Stop</button>
+          </div>
+          <div id="upload-controls" class="upload-controls hidden">
+            <div class="venue-confirm">
+              <span id="venue-label">Detecting venue…</span>
+              <button id="change-venue" class="secondary-btn">Change</button>
+            </div>
+            <button id="upload-video" class="primary-btn">Upload</button>
+            <div id="upload-progress" class="progress hidden" aria-live="polite">
+              <div class="bar"></div>
+              <span class="text">Uploading…</span>
+            </div>
+          </div>
+          <p id="record-hint" class="hint">Record 15–30 seconds. Avoid faces and private info. Be respectful.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Venue Bottom Sheet -->
+    <div id="venue-sheet" class="bottom-sheet hidden" role="dialog" aria-modal="false" aria-labelledby="venue-title">
+      <div class="sheet-header">
+        <div class="drag-handle" aria-hidden="true"></div>
+        <h3 id="venue-title">Venue</h3>
+        <button id="close-sheet" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <div id="venue-content" class="sheet-content">
+        <div class="placeholder">No videos yet. Be the first!</div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  </div>
+
+  <noscript>This app requires JavaScript enabled.</noscript>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+
+  <!-- App Scripts -->
+  <script type="module">
+    import './firebase-config.js';
+    import { initApp } from './app.js';
+
+    window.addEventListener('load', () => {
+      initApp();
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
+    });
+  </script>
+</body>
+</html>
