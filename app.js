@@ -150,6 +150,7 @@ function setupEventListeners() {
 
   uploadBtn?.addEventListener('click', async () => {
     try {
+      if (!window.fetch) throw new Error('Offline');
       if (!state.media.blob || (state.media.durationSec || 0) < 15) {
         showToast('Please record at least 15 seconds before uploading.');
         return;
@@ -173,12 +174,12 @@ function setupEventListeners() {
         thumbnailUrl: thumbnailURL || null,
         location,
         venueId: state.currentVenueId,
-        timestamp: nowServerDate(),
+        timestamp: nowServerDate ? nowServerDate() : new Date(),
         expiresAt,
         userId: state.userId,
         reportCount: 0,
       };
-      const docRef = await addPost(postData);
+      if (addPost) await addPost(postData);
 
       recordPostTimestamp();
       showToast('Uploaded! Visible for 4 hours.');
@@ -188,7 +189,7 @@ function setupEventListeners() {
       await loadNearbyPosts(c.lat, c.lng, false);
     } catch (e) {
       console.error(e);
-      showToast(e.userMessage || 'Upload failed. Will retry when online.');
+      showToast(e.userMessage || 'Upload failed. Check connection or Firebase config.');
     } finally {
       const progress = document.getElementById('upload-progress');
       progress?.classList.add('hidden');
@@ -325,7 +326,7 @@ export async function showVenueVideos(venueId) {
     sheet.classList.remove('hidden');
     content.innerHTML = '<div class="placeholder">Loading…</div>';
 
-    const posts = await fetchVenuePosts(venueId);
+    const posts = fetchVenuePosts ? await fetchVenuePosts(venueId) : [];
     if (!posts.length) { content.innerHTML = '<div class="placeholder">No videos yet. Be the first!</div>'; return; }
 
     const list = document.createElement('div');
@@ -363,10 +364,15 @@ function hideVenueSheet() {
 
 export async function reportVideo(videoId) {
   try {
+    if (!videoId) return;
     const { db } = await import('./firebase-config.js');
-    const { doc, updateDoc, increment } = await import('https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js');
-    await updateDoc(doc(db, 'posts', videoId), { reportCount: increment(1) });
-    showToast('Reported. Thank you.');
+    const { doc, updateDoc, increment } = await import('https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js').catch(() => ({}));
+    if (doc && updateDoc && increment) {
+      await updateDoc(doc(db, 'posts', videoId), { reportCount: increment(1) });
+      showToast('Reported. Thank you.');
+    } else {
+      showToast('Reporting unavailable offline');
+    }
   } catch (e) { console.error(e); showToast('Failed to report'); }
 }
 
@@ -383,7 +389,7 @@ export async function saveVideoPost(videoBlob, location) {
 export async function loadNearbyPosts(lat, lng, initial = false) {
   try {
     const bounds = getMapBounds ? getMapBounds() : undefined;
-    const posts = await fetchRecentPosts(bounds);
+    const posts = fetchRecentPosts ? await fetchRecentPosts(bounds) : [];
 
     // Cache in state and update map markers
     const byVenue = new Map();
