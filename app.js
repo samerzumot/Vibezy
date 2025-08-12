@@ -74,6 +74,10 @@ export async function initApp() {
 
     const center = state.userLocation || { lat: 40.73061, lng: -73.935242 }; // NYC fallback
     state.map = initMap(center.lat, center.lng);
+    // Ensure map sizes correctly after layout
+    setTimeout(() => { try { state.map && state.map.invalidateSize(true); } catch(_){} }, 250);
+    window.addEventListener('resize', () => { try { state.map && state.map.invalidateSize(false); } catch(_){} });
+    window.addEventListener('orientationchange', () => { try { state.map && state.map.invalidateSize(false); } catch(_){} });
 
     // Venue click callback
     setVenueClickHandler((venueId) => showVenueVideos(venueId));

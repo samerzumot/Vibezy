@@ -15,10 +15,20 @@ export function initMap(lat, lng) {
     attributionControl: true,
   }).setView([lat, lng], 15);
 
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const tile1 = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    subdomains: ['a','b','c'],
     maxZoom: 20,
     attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(mapInstance);
+  });
+  tile1.addTo(mapInstance);
+
+  // Secondary fallback provider
+  tile1.on('tileerror', () => {
+    try {
+      const alt = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', { subdomains: ['a','b','c'], maxZoom: 20 });
+      alt.addTo(mapInstance);
+    } catch (_) {}
+  });
 
   // User blue dot
   userMarker = L.circleMarker([lat, lng], {

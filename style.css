@@ -17,13 +17,13 @@
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; min-height: 100vh; }
 
 /* Prevent pinch zoom on interactions while keeping accessibility */
 :where(button, a, input) { touch-action: manipulation; }
 
 /* Map Container */
-#map-container { position: fixed; inset: 0; height: 100dvh; width: 100vw; }
+#map-container { position: fixed; inset: 0; height: 100vh; height: 100dvh; width: 100vw; }
 .leaflet-container { background: #0b1220; }
 
 /* Floating Button */
