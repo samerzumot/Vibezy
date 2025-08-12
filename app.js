@@ -16,6 +16,7 @@ const state = {
   media: { stream: null, blob: null, thumbnailBlob: null, durationSec: 0 },
   timers: { record: null, refresh: null, heat: null, cleanup: null },
   mock: { venues: new Map(), postsByVenue: new Map() },
+  staticRendered: false,
 };
 
 // Constants
@@ -83,24 +84,21 @@ export async function initApp() {
     // Venue click callback
     setVenueClickHandler((venueId) => showVenueVideos(venueId));
 
+    // Seed and render real venues only (no random mocks)
+    registerStaticVenues();
+    renderStaticVenuesOnce();
+
+    // Initial heatmap
     await loadNearbyPosts(center.lat, center.lng, true);
 
-    // Auto refresh posts and heatmap
+    // Auto refresh heatmap only (markers are static)
     state.timers.refresh = setInterval(async () => {
       const c = getMapCenter();
       await loadNearbyPosts(c.lat, c.lng, false);
     }, POSTS_REFRESH_MS);
 
-    state.timers.heat = setInterval(() => {
-      const posts = Array.from(state.posts.values());
-      updateHeatmap(posts);
-    }, POSTS_REFRESH_MS);
-
     // Periodic local cleanup of own expired content
     state.timers.cleanup = setInterval(() => cleanupExpiredContent(), 5 * 60 * 1000);
-
-    // Seed static venues (e.g., Pure Nightclub, Sunnyvale)
-    registerStaticVenues();
 
     window.addEventListener('online', () => showToast('Back online'));
     window.addEventListener('offline', () => showToast('You are offline'));
@@ -190,7 +188,7 @@ function setupEventListeners() {
       recordPostTimestamp();
       showToast('Uploaded! Visible for 4 hours.');
       hideRecordModal();
-      // Refresh posts
+      // Refresh heatmap only
       const c = location || getMapCenter();
       await loadNearbyPosts(c.lat, c.lng, false);
     } catch (e) {
@@ -313,27 +311,10 @@ async function prepareUploadUI() {
   recordControls?.classList.add('hidden');
   uploadControls?.classList.remove('hidden');
 
-  // Auto-detect venue based on proximity
-  const { venueId, venueName } = await detectNearestVenue();
-  state.currentVenueId = venueId;
+  // Auto-detect venue based on proximity (only static available)
+  state.currentVenueId = 'pure_sunnyvale';
   const label = document.getElementById('venue-label');
-  if (label) label.textContent = venueName ? `Venue: ${venueName}` : 'Near an unlisted venue';
-}
-
-async function detectNearestVenue() {
-  // For MVP, derive venues from cluster of posts
-  const posts = Array.from(state.posts.values());
-  const loc = await getCurrentLocationFallback();
-  let nearest = null; let minD = Infinity;
-  posts.forEach(p => {
-    const d = haversine(loc.lat, loc.lng, p.location.lat, p.location.lng);
-    if (d < minD) { minD = d; nearest = p; }
-  });
-  const withinMeters = minD * 1000;
-  if (nearest && withinMeters < 120) {
-    return { venueId: nearest.venueId || 'ad-hoc', venueName: nearest.venueName || 'Nearby spot' };
-  }
-  return { venueId: 'ad-hoc', venueName: null };
+  if (label) label.textContent = 'Venue: Pure Nightclub';
 }
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -379,7 +360,7 @@ export async function showVenueVideos(venueId) {
       const v = document.createElement('video'); v.className = 'player'; v.setAttribute('playsinline', ''); v.setAttribute('controls', ''); v.setAttribute('muted', '');
       if (p.thumbnailUrl) v.setAttribute('poster', p.thumbnailUrl);
       v.addEventListener('click', () => v.play().catch(() => {}));
-      const source = document.createElement('source'); source.src = p.videoUrl; source.type = 'video/webm';
+      const source = document.createElement('source'); source.src = p.videoUrl; source.type = guessMimeType(p.videoUrl);
       v.appendChild(source);
       item.appendChild(header); item.appendChild(v); list.appendChild(item);
     });
@@ -423,160 +404,21 @@ export async function saveVideoPost(videoBlob, location) {
 export async function loadNearbyPosts(lat, lng, initial = false) {
   try {
     const bounds = getMapBounds ? getMapBounds() : undefined;
-    const posts = fetchRecentPosts ? await fetchRecentPosts(bounds) : [];
+    const recent = fetchRecentPosts ? await fetchRecentPosts(bounds) : [];
 
-    // Cache in state and update map markers
-    const byVenue = new Map();
-    posts.forEach(p => {
-      state.posts.set(p.id, p);
-      const key = p.venueId || 'ad-hoc';
-      const arr = byVenue.get(key) || []; arr.push(p); byVenue.set(key, arr);
-    });
+    // Cache in state
+    recent.forEach(p => { state.posts.set(p.id, p); });
 
-    // If no posts available, inject mock data once
-    if (posts.length === 0 && state.mock.venues.size === 0) {
-      injectMockContent({ lat, lng });
-      registerStaticVenues();
-      // render mocks + static
-      const { resetVenueMarkers } = await import('./map.js');
-      resetVenueMarkers();
-      state.mock.venues.forEach((venue, id) => {
-        const activity = (state.mock.postsByVenue.get(id) || []).length;
-        addVenueMarker(venue, activity);
-      });
-      const allMockPosts = Array.from(state.mock.postsByVenue.values()).flat();
-      updateHeatmap(allMockPosts);
-      if (initial) showToast('Loaded local venues (mock)');
-      return;
-    }
-
-    // Clear and then add markers for this refresh cycle
-    const { resetVenueMarkers } = await import('./map.js');
-    resetVenueMarkers();
-
-    // Derive venues from posts for MVP
-    byVenue.forEach((arr, key) => {
-      const centroid = arr.reduce((acc, p) => ({ lat: acc.lat + p.location.lat, lng: acc.lng + p.location.lng }), { lat: 0, lng: 0 });
-      centroid.lat /= arr.length; centroid.lng /= arr.length;
-      const activityCount = arr.filter(p => (Date.now() - new Date(p.timestamp?.toDate ? p.timestamp.toDate() : p.timestamp).getTime()) < FOUR_HOURS_MS).length;
-      addVenueMarker({ id: key, name: 'Spot', location: centroid }, activityCount);
-    });
-
-    // Also render static venues (like Pure Nightclub)
-    state.mock.venues.forEach((venue, id) => {
-      const activity = (state.mock.postsByVenue.get(id) || []).length;
-      addVenueMarker(venue, activity);
-    });
-
-    // Heatmap over combined dataset
+    // Heatmap over combined dataset (recent + static real venue posts)
     const staticPosts = Array.from(state.mock.postsByVenue.values()).flat();
-    updateHeatmap([ ...posts, ...staticPosts ]);
+    updateHeatmap([ ...recent, ...staticPosts ]);
 
-    if (initial) showToast('Loaded nearby vibes');
+    if (initial) showToast('Loaded vibes nearby');
   } catch (e) {
     console.error(e);
-    // On error, try mock content if not already present
-    if (state.mock.venues.size === 0) {
-      injectMockContent({ lat, lng });
-      registerStaticVenues();
-      const { resetVenueMarkers } = await import('./map.js');
-      resetVenueMarkers();
-      state.mock.venues.forEach((venue, id) => {
-        const activity = (state.mock.postsByVenue.get(id) || []).length;
-        addVenueMarker(venue, activity);
-      });
-      const allMockPosts = Array.from(state.mock.postsByVenue.values()).flat();
-      updateHeatmap(allMockPosts);
-      if (initial) showToast('Working offline with mock venues');
-    } else {
-      showToast('Could not load nearby posts. Working offline.');
-    }
-  }
-}
-
-function randomOffset(minMeters, maxMeters) {
-  const meters = minMeters + Math.random() * (maxMeters - minMeters);
-  const angle = Math.random() * Math.PI * 2;
-  // Rough meters to degrees conversion
-  const dx = (meters * Math.cos(angle)) / 111320; // lon
-  const dy = (meters * Math.sin(angle)) / 110540; // lat
-  return { dLat: dy, dLng: dx };
-}
-
-function injectMockContent(center) {
-  const names = [
-    'Neon Lounge', 'Midnight Club', 'Pulse Bar', 'Velvet Room', 'Electric Alley',
-    'Rhythm House', 'Echo Basement', 'The Hideout', 'Blue Note', 'Afterglow'
-  ];
-  const sampleVideo = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm';
-
-  // Do not clear static venues/posts; only add random mocks if not present
-
-  for (let i = 0; i < names.length; i++) {
-    const { dLat, dLng } = randomOffset(80, 600);
-    const v = {
-      id: `mock_${i}`,
-      name: names[i],
-      location: { lat: center.lat + dLat, lng: center.lng + dLng },
-      address: '123 Main St',
-    };
-    if (!state.mock.venues.has(v.id)) state.mock.venues.set(v.id, v);
-
-    // Generate recent posts to reflect activity
-    const count = Math.floor(Math.random() * 10);
-    const posts = [];
-    for (let j = 0; j < count; j++) {
-      const ageMs = Math.floor(Math.random() * FOUR_HOURS_MS);
-      const ts = new Date(Date.now() - ageMs);
-      const jitter = randomOffset(0, 30);
-      posts.push({
-        id: `${v.id}_p${j}`,
-        venueId: v.id,
-        venueName: v.name,
-        videoUrl: sampleVideo,
-        thumbnailUrl: null,
-        location: { lat: v.location.lat + jitter.dLat, lng: v.location.lng + jitter.dLng },
-        timestamp: ts,
-        expiresAt: new Date(ts.getTime() + FOUR_HOURS_MS),
-        userId: 'mock',
-        reportCount: 0,
-      });
-    }
-    state.mock.postsByVenue.set(v.id, posts);
-  }
-}
-
-function registerStaticVenues() {
-  // Pure Nightclub, Sunnyvale
-  const pure = {
-    id: 'pure_sunnyvale',
-    name: 'Pure Nightclub',
-    location: { lat: 37.3773, lng: -122.0307 },
-    address: '146 S Murphy Ave, Sunnyvale, CA',
-    static: true,
-  };
-  state.mock.venues.set(pure.id, pure);
-  if (!state.mock.postsByVenue.has(pure.id)) {
-    const sampleVideo = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm';
-    const posts = [];
-    for (let i = 0; i < 6; i++) {
-      const ageMs = Math.floor(Math.random() * FOUR_HOURS_MS);
-      const ts = new Date(Date.now() - ageMs);
-      const jitter = randomOffset(0, 20);
-      posts.push({
-        id: `${pure.id}_p${i}`,
-        venueId: pure.id,
-        venueName: pure.name,
-        videoUrl: sampleVideo,
-        thumbnailUrl: null,
-        location: { lat: pure.location.lat + jitter.dLat, lng: pure.location.lng + jitter.dLng },
-        timestamp: ts,
-        expiresAt: new Date(ts.getTime() + FOUR_HOURS_MS),
-        userId: 'mock',
-        reportCount: 0,
-      });
-    }
-    state.mock.postsByVenue.set(pure.id, posts);
+    const staticPosts = Array.from(state.mock.postsByVenue.values()).flat();
+    updateHeatmap(staticPosts);
+    if (initial) showToast('Working offline');
   }
 }
 
@@ -596,18 +438,78 @@ async function openVenuePicker() {
   const sheet = document.getElementById('venue-sheet');
   const content = document.getElementById('venue-content');
   if (!sheet || !content) return;
-  const posts = Array.from(state.posts.values());
-  const unique = new Map();
-  posts.forEach(p => { const k = p.venueId || 'ad-hoc'; if (!unique.has(k)) unique.set(k, p); });
-  const list = document.createElement('div'); list.className = 'video-list';
-  unique.forEach((p, id) => {
-    const btn = document.createElement('button'); btn.className = 'secondary-btn'; btn.style.width = '100%';
-    btn.textContent = p.venueName ? p.venueName : `Nearby spot (${id})`;
-    btn.addEventListener('click', () => { state.currentVenueId = id; document.getElementById('venue-label').textContent = `Venue: ${btn.textContent}`; hideVenueSheet(); });
-    const wrap = document.createElement('div'); wrap.className = 'video-item';
-    const header = document.createElement('header'); header.textContent = btn.textContent; wrap.appendChild(header); wrap.appendChild(btn); list.appendChild(wrap);
-  });
-  content.innerHTML = '';
-  content.appendChild(list);
+  // Only static venue for now
+  const btn = document.createElement('button'); btn.className = 'secondary-btn'; btn.style.width = '100%';
+  btn.textContent = 'Pure Nightclub (Sunnyvale)';
+  btn.addEventListener('click', () => { state.currentVenueId = 'pure_sunnyvale'; document.getElementById('venue-label').textContent = 'Venue: Pure Nightclub'; hideVenueSheet(); });
+  const wrap = document.createElement('div'); wrap.className = 'video-item';
+  const header = document.createElement('header'); header.textContent = btn.textContent; wrap.appendChild(header); wrap.appendChild(btn);
+  content.innerHTML = ''; content.appendChild(wrap);
   sheet.classList.remove('hidden');
+}
+
+function renderStaticVenuesOnce() {
+  if (state.staticRendered) return;
+  import('./map.js').then(({ resetVenueMarkers }) => {
+    resetVenueMarkers();
+    state.mock.venues.forEach((venue, id) => {
+      const activity = (state.mock.postsByVenue.get(id) || []).length;
+      addVenueMarker(venue, activity);
+    });
+    state.staticRendered = true;
+  });
+}
+
+function randomOffset(minMeters, maxMeters) {
+  const meters = minMeters + Math.random() * (maxMeters - minMeters);
+  const angle = Math.random() * Math.PI * 2;
+  // Rough meters to degrees conversion
+  const dx = (meters * Math.cos(angle)) / 111320; // lon
+  const dy = (meters * Math.sin(angle)) / 110540; // lat
+  return { dLat: dy, dLng: dx };
+}
+
+function registerStaticVenues() {
+  // Pure Nightclub, Sunnyvale (real venue)
+  const pure = {
+    id: 'pure_sunnyvale',
+    name: 'Pure Nightclub',
+    location: { lat: 37.3773, lng: -122.0307 },
+    address: '146 S Murphy Ave, Sunnyvale, CA',
+    static: true,
+    avatarUrl: 'https://images.unsplash.com/photo-1519677100203-a0e668c92439?auto=format&fit=crop&w=160&h=160&q=80',
+  };
+  state.mock.venues.set(pure.id, pure);
+  if (!state.mock.postsByVenue.has(pure.id)) {
+    // Use openly-licensed representative media (not brand-owned)
+    const sampleVideoMp4 = 'https://videos.pexels.com/video-files/3195394/3195394-sd_960_540_25fps.mp4';
+    const sampleThumb = 'https://images.unsplash.com/photo-1561484930-3982f202ec68?auto=format&fit=crop&w=800&q=70';
+    const posts = [];
+    for (let i = 0; i < 4; i++) {
+      const ageMs = Math.floor(Math.random() * FOUR_HOURS_MS);
+      const ts = new Date(Date.now() - ageMs);
+      const jitter = randomOffset(0, 20);
+      posts.push({
+        id: `${pure.id}_p${i}`,
+        venueId: pure.id,
+        venueName: pure.name,
+        videoUrl: sampleVideoMp4,
+        thumbnailUrl: sampleThumb,
+        location: { lat: pure.location.lat + jitter.dLat, lng: pure.location.lng + jitter.dLng },
+        timestamp: ts,
+        expiresAt: new Date(ts.getTime() + FOUR_HOURS_MS),
+        userId: 'mock',
+        reportCount: 0,
+      });
+    }
+    state.mock.postsByVenue.set(pure.id, posts);
+  }
+}
+
+function guessMimeType(url) {
+  if (!url) return 'video/mp4';
+  const u = url.split('?')[0].toLowerCase();
+  if (u.endsWith('.webm')) return 'video/webm';
+  if (u.endsWith('.mp4')) return 'video/mp4';
+  return 'video/mp4';
 }
