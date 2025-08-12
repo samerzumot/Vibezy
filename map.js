@@ -73,13 +73,16 @@ export function resetVenueMarkers() {
 export function addVenueMarker(venue, activityLevel) {
   if (!venueLayer) return;
 
-  const color = activityLevel >= 8 ? '#ef4444' : activityLevel >= 3 ? '#f59e0b' : '#10b981';
-  const size = activityLevel >= 8 ? 12 : activityLevel >= 3 ? 10 : 9;
+  const avatarUrl = venue.avatarUrl || 'https://i.pravatar.cc/80?img=' + (Math.floor(Math.random() * 70) + 1);
+  const count = typeof activityLevel === 'number' ? activityLevel : 0;
 
   const html = `
-    <div style="display:flex;align-items:center;gap:6px;transform:translate(-50%,-50%);pointer-events:auto;">
-      <span style="display:inline-block;width:${size * 2}px;height:${size * 2}px;border-radius:999px;border:2px solid #0b1220;background:${color};box-shadow:0 0 0 6px rgba(0,0,0,.12);"></span>
-      <span style="color:#fff;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:6px;font:600 12px/1.2 system-ui;white-space:nowrap">${escapeHtml(venue.name || 'Spot')}</span>
+    <div class="avatar-marker">
+      <div class="ring">
+        <div class="inner"><img src="${avatarUrl}" alt="" /></div>
+        <div class="badge">${count}</div>
+      </div>
+      <span class="label">${escapeHtml(venue.name || 'Spot')}</span>
     </div>`;
 
   const icon = L.divIcon({ html, className: '', iconSize: [0, 0] });
