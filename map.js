@@ -104,16 +104,23 @@ export function updateHeatmap(posts) {
   if (!heatLayer) return;
   heatLayer.clearLayers();
   const now = Date.now();
-  posts.forEach(p => {
+  // Convert posts to heat points: [lat, lng, intensity]
+  const points = posts.map(p => {
     const ageMs = now - new Date(p.timestamp?.toDate ? p.timestamp.toDate() : p.timestamp).getTime();
-    const freshness = Math.max(0.1, 1 - (ageMs / (4 * 60 * 60 * 1000))); // 0..1
-    const color = ageMs < 60 * 60 * 1000 ? '#ef4444' : ageMs < 2 * 60 * 60 * 1000 ? '#f59e0b' : '#10b981';
-    L.circle([p.location.lat, p.location.lng], {
-      radius: 50 + 200 * freshness, // meters
-      color: color,
-      fillColor: color,
-      fillOpacity: 0.15 * (0.5 + freshness),
-      weight: 0,
-    }).addTo(heatLayer);
+    const freshness = Math.max(0.15, 1 - (ageMs / (4 * 60 * 60 * 1000)));
+    return [p.location.lat, p.location.lng, freshness];
   });
+  if (points.length === 0) return;
+  const h = L.heatLayer(points, {
+    radius: 28,
+    blur: 22,
+    maxZoom: 18,
+    gradient: { 0.2: '#22d3ee', 0.4: '#60a5fa', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#dc2626' }
+  });
+  h.addTo(heatLayer);
+}
+
+export function locate(lat, lng) {
+  if (!mapInstance) return;
+  mapInstance.flyTo([lat, lng], 16, { duration: 0.6 });
 }

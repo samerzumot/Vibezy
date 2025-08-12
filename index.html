@@ -29,8 +29,16 @@
 </head>
 <body>
   <div id="app">
+    <!-- Search bar -->
+    <div class="searchbar">
+      <input id="search-input" type="search" placeholder="Search" aria-label="Search places" />
+    </div>
+
     <!-- Fullscreen Map -->
     <div id="map-container" role="application" aria-label="Map showing venues"></div>
+
+    <!-- Floating locate button -->
+    <button id="locate-btn" class="floating-btn secondary" aria-label="Locate me" title="Locate me">⌖</button>
 
     <!-- Floating Record Button -->
     <button id="record-btn" class="floating-btn" aria-label="Record video" title="Record video">📹</button>
@@ -90,6 +98,7 @@
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js" crossorigin="anonymous"></script>
 
   <!-- App Scripts -->
   <script type="module">

@@ -119,6 +119,8 @@ function setupEventListeners() {
   const uploadBtn = document.getElementById('upload-video');
   const changeVenueBtn = document.getElementById('change-venue');
   const closeSheetBtn = document.getElementById('close-sheet');
+  const locateBtn = document.getElementById('locate-btn');
+  const searchInput = document.getElementById('search-input');
 
   recordBtn?.addEventListener('click', async () => {
     if (!canPostNow()) { showToast('Rate limit: max 3 posts per hour'); return; }
@@ -215,6 +217,29 @@ function setupEventListeners() {
   window.addEventListener('vibezy:recorded', (e) => {
     const { blob, thumbnailBlob, durationSec } = e.detail || {};
     state.media.blob = blob; state.media.thumbnailBlob = thumbnailBlob; state.media.durationSec = durationSec || 0;
+  });
+
+  locateBtn?.addEventListener('click', async () => {
+    const loc = await getCurrentLocationFallback();
+    const { locate } = await import('./map.js');
+    locate(loc.lat, loc.lng);
+  });
+
+  searchInput?.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const q = (searchInput.value || '').toLowerCase().trim();
+    const presets = {
+      'sunnyvale': { lat: 37.3688, lng: -122.0363 },
+      'new york': { lat: 40.73061, lng: -73.935242 },
+      'san francisco': { lat: 37.7749, lng: -122.4194 },
+      'los angeles': { lat: 34.0522, lng: -118.2437 },
+      'pure': { lat: 37.3773, lng: -122.0307 },
+    };
+    const target = presets[q];
+    if (target) {
+      const { locate } = await import('./map.js');
+      locate(target.lat, target.lng);
+    }
   });
 }
 
