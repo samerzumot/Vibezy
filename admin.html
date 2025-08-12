@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vibezy Admin</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    main { max-width: 1100px; margin: 20px auto; padding: 0 12px; }
+    header.admin { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; }
+    .stat { background: var(--surface); border: 1px solid #374151; border-radius: var(--radius); padding: 10px 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #2b3442; padding: 8px; text-align: left; }
+    th { color: var(--muted); font-weight: 500; }
+    .actions { display: flex; gap: 8px; }
+    .video-thumb { width: 240px; max-width: 32vw; height: auto; background: #000; }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="admin">
+      <h1>Vibezy Moderation</h1>
+      <div class="stats">
+        <div class="stat"><strong id="stat-posts-hour">0</strong> posts/hr</div>
+        <div class="stat"><strong id="stat-active-venues">0</strong> active venues</div>
+        <button id="refresh" class="secondary-btn">Refresh</button>
+      </div>
+    </header>
+
+    <section>
+      <h2>Reported Videos</h2>
+      <div id="reported-empty" class="hint">No reported videos 🎉</div>
+      <table id="reported-table" class="hidden">
+        <thead>
+          <tr><th>Preview</th><th>Time</th><th>Reports</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="reported-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script type="module">
+    import { fetchReportedPosts, deletePost, fetchRecentPosts } from './firebase-config.js';
+
+    async function load() {
+      const reported = await fetchReportedPosts();
+      const empty = document.getElementById('reported-empty');
+      const table = document.getElementById('reported-table');
+      const tbody = document.getElementById('reported-body');
+      tbody.innerHTML = '';
+      if (!reported.length) { empty.classList.remove('hidden'); table.classList.add('hidden'); } else { empty.classList.add('hidden'); table.classList.remove('hidden'); }
+
+      for (const p of reported) {
+        const tr = document.createElement('tr');
+        const tdPrev = document.createElement('td');
+        const v = document.createElement('video'); v.className = 'video-thumb'; v.src = p.videoUrl; v.setAttribute('controls', ''); v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); tdPrev.appendChild(v);
+        const tdTime = document.createElement('td'); tdTime.textContent = new Date(p.timestamp?.toDate ? p.timestamp.toDate() : p.timestamp).toLocaleString();
+        const tdReports = document.createElement('td'); tdReports.textContent = (p.reportCount || 0).toString();
+        const tdActions = document.createElement('td'); const actions = document.createElement('div'); actions.className = 'actions';
+        const approve = document.createElement('button'); approve.className = 'secondary-btn'; approve.textContent = 'Approve';
+        const remove = document.createElement('button'); remove.className = 'danger-btn'; remove.textContent = 'Remove';
+        approve.addEventListener('click', async () => { await approvePost(p.id); tr.remove(); });
+        remove.addEventListener('click', async () => { if (confirm('Delete this post?')) { await deletePost(p.id); tr.remove(); } });
+        actions.appendChild(approve); actions.appendChild(remove); tdActions.appendChild(actions);
+        tr.appendChild(tdPrev); tr.appendChild(tdTime); tr.appendChild(tdReports); tr.appendChild(tdActions);
+        tbody.appendChild(tr);
+      }
+
+      // Stats
+      const recent = await fetchRecentPosts();
+      const lastHour = recent.filter(p => (Date.now() - new Date(p.timestamp?.toDate ? p.timestamp.toDate() : p.timestamp).getTime()) < 60 * 60 * 1000);
+      document.getElementById('stat-posts-hour').textContent = String(lastHour.length);
+      const venueSet = new Set(recent.map(p => p.venueId || 'ad-hoc'));
+      document.getElementById('stat-active-venues').textContent = String(venueSet.size);
+    }
+
+    async function approvePost(postId) {
+      // Minimal: decrease reportCount to 0
+      try {
+        const { db } = await import('./firebase-config.js');
+        const { doc, updateDoc } = await import('https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js');
+        await updateDoc(doc(db, 'posts', postId), { reportCount: 0 });
+      } catch (e) { console.error(e); alert('Failed to approve'); }
+    }
+
+    document.getElementById('refresh').addEventListener('click', load);
+    load();
+  </script>
+</body>
+</html>
