@@ -99,6 +99,9 @@ export async function initApp() {
     // Periodic local cleanup of own expired content
     state.timers.cleanup = setInterval(() => cleanupExpiredContent(), 5 * 60 * 1000);
 
+    // Seed static venues (e.g., Pure Nightclub, Sunnyvale)
+    registerStaticVenues();
+
     window.addEventListener('online', () => showToast('Back online'));
     window.addEventListener('offline', () => showToast('You are offline'));
   } catch (error) {
@@ -408,7 +411,8 @@ export async function loadNearbyPosts(lat, lng, initial = false) {
     // If no posts available, inject mock data once
     if (posts.length === 0 && state.mock.venues.size === 0) {
       injectMockContent({ lat, lng });
-      // render mocks
+      registerStaticVenues();
+      // render mocks + static
       const { resetVenueMarkers } = await import('./map.js');
       resetVenueMarkers();
       state.mock.venues.forEach((venue, id) => {
@@ -433,7 +437,15 @@ export async function loadNearbyPosts(lat, lng, initial = false) {
       addVenueMarker({ id: key, name: 'Spot', location: centroid }, activityCount);
     });
 
-    updateHeatmap(posts);
+    // Also render static venues (like Pure Nightclub)
+    state.mock.venues.forEach((venue, id) => {
+      const activity = (state.mock.postsByVenue.get(id) || []).length;
+      addVenueMarker(venue, activity);
+    });
+
+    // Heatmap over combined dataset
+    const staticPosts = Array.from(state.mock.postsByVenue.values()).flat();
+    updateHeatmap([ ...posts, ...staticPosts ]);
 
     if (initial) showToast('Loaded nearby vibes');
   } catch (e) {
@@ -441,6 +453,7 @@ export async function loadNearbyPosts(lat, lng, initial = false) {
     // On error, try mock content if not already present
     if (state.mock.venues.size === 0) {
       injectMockContent({ lat, lng });
+      registerStaticVenues();
       const { resetVenueMarkers } = await import('./map.js');
       resetVenueMarkers();
       state.mock.venues.forEach((venue, id) => {
@@ -472,8 +485,7 @@ function injectMockContent(center) {
   ];
   const sampleVideo = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm';
 
-  state.mock.venues.clear();
-  state.mock.postsByVenue.clear();
+  // Do not clear static venues/posts; only add random mocks if not present
 
   for (let i = 0; i < names.length; i++) {
     const { dLat, dLng } = randomOffset(80, 600);
@@ -483,7 +495,7 @@ function injectMockContent(center) {
       location: { lat: center.lat + dLat, lng: center.lng + dLng },
       address: '123 Main St',
     };
-    state.mock.venues.set(v.id, v);
+    if (!state.mock.venues.has(v.id)) state.mock.venues.set(v.id, v);
 
     // Generate recent posts to reflect activity
     const count = Math.floor(Math.random() * 10);
@@ -506,6 +518,40 @@ function injectMockContent(center) {
       });
     }
     state.mock.postsByVenue.set(v.id, posts);
+  }
+}
+
+function registerStaticVenues() {
+  // Pure Nightclub, Sunnyvale
+  const pure = {
+    id: 'pure_sunnyvale',
+    name: 'Pure Nightclub',
+    location: { lat: 37.3773, lng: -122.0307 },
+    address: '146 S Murphy Ave, Sunnyvale, CA',
+    static: true,
+  };
+  state.mock.venues.set(pure.id, pure);
+  if (!state.mock.postsByVenue.has(pure.id)) {
+    const sampleVideo = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm';
+    const posts = [];
+    for (let i = 0; i < 6; i++) {
+      const ageMs = Math.floor(Math.random() * FOUR_HOURS_MS);
+      const ts = new Date(Date.now() - ageMs);
+      const jitter = randomOffset(0, 20);
+      posts.push({
+        id: `${pure.id}_p${i}`,
+        venueId: pure.id,
+        venueName: pure.name,
+        videoUrl: sampleVideo,
+        thumbnailUrl: null,
+        location: { lat: pure.location.lat + jitter.dLat, lng: pure.location.lng + jitter.dLng },
+        timestamp: ts,
+        expiresAt: new Date(ts.getTime() + FOUR_HOURS_MS),
+        userId: 'mock',
+        reportCount: 0,
+      });
+    }
+    state.mock.postsByVenue.set(pure.id, posts);
   }
 }
 
