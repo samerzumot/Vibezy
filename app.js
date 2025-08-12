@@ -15,6 +15,7 @@ const state = {
   currentVenueId: null,
   media: { stream: null, blob: null, thumbnailBlob: null, durationSec: 0 },
   timers: { record: null, refresh: null, heat: null, cleanup: null },
+  mock: { venues: new Map(), postsByVenue: new Map() },
 };
 
 // Constants
@@ -326,7 +327,12 @@ export async function showVenueVideos(venueId) {
     sheet.classList.remove('hidden');
     content.innerHTML = '<div class="placeholder">Loading…</div>';
 
-    const posts = fetchVenuePosts ? await fetchVenuePosts(venueId) : [];
+    let posts = [];
+    try { posts = fetchVenuePosts ? await fetchVenuePosts(venueId) : []; } catch (_) { posts = []; }
+    if (!posts.length && state.mock.postsByVenue.has(venueId)) {
+      posts = state.mock.postsByVenue.get(venueId) || [];
+    }
+
     if (!posts.length) { content.innerHTML = '<div class="placeholder">No videos yet. Be the first!</div>'; return; }
 
     const list = document.createElement('div');
@@ -399,6 +405,22 @@ export async function loadNearbyPosts(lat, lng, initial = false) {
       const arr = byVenue.get(key) || []; arr.push(p); byVenue.set(key, arr);
     });
 
+    // If no posts available, inject mock data once
+    if (posts.length === 0 && state.mock.venues.size === 0) {
+      injectMockContent({ lat, lng });
+      // render mocks
+      const { resetVenueMarkers } = await import('./map.js');
+      resetVenueMarkers();
+      state.mock.venues.forEach((venue, id) => {
+        const activity = (state.mock.postsByVenue.get(id) || []).length;
+        addVenueMarker(venue, activity);
+      });
+      const allMockPosts = Array.from(state.mock.postsByVenue.values()).flat();
+      updateHeatmap(allMockPosts);
+      if (initial) showToast('Loaded local venues (mock)');
+      return;
+    }
+
     // Clear and then add markers for this refresh cycle
     const { resetVenueMarkers } = await import('./map.js');
     resetVenueMarkers();
@@ -416,11 +438,78 @@ export async function loadNearbyPosts(lat, lng, initial = false) {
     if (initial) showToast('Loaded nearby vibes');
   } catch (e) {
     console.error(e);
-    showToast('Could not load nearby posts. Working offline.');
+    // On error, try mock content if not already present
+    if (state.mock.venues.size === 0) {
+      injectMockContent({ lat, lng });
+      const { resetVenueMarkers } = await import('./map.js');
+      resetVenueMarkers();
+      state.mock.venues.forEach((venue, id) => {
+        const activity = (state.mock.postsByVenue.get(id) || []).length;
+        addVenueMarker(venue, activity);
+      });
+      const allMockPosts = Array.from(state.mock.postsByVenue.values()).flat();
+      updateHeatmap(allMockPosts);
+      if (initial) showToast('Working offline with mock venues');
+    } else {
+      showToast('Could not load nearby posts. Working offline.');
+    }
   }
 }
 
-export function cleanupExpiredContent() {
+function randomOffset(minMeters, maxMeters) {
+  const meters = minMeters + Math.random() * (maxMeters - minMeters);
+  const angle = Math.random() * Math.PI * 2;
+  // Rough meters to degrees conversion
+  const dx = (meters * Math.cos(angle)) / 111320; // lon
+  const dy = (meters * Math.sin(angle)) / 110540; // lat
+  return { dLat: dy, dLng: dx };
+}
+
+function injectMockContent(center) {
+  const names = [
+    'Neon Lounge', 'Midnight Club', 'Pulse Bar', 'Velvet Room', 'Electric Alley',
+    'Rhythm House', 'Echo Basement', 'The Hideout', 'Blue Note', 'Afterglow'
+  ];
+  const sampleVideo = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm';
+
+  state.mock.venues.clear();
+  state.mock.postsByVenue.clear();
+
+  for (let i = 0; i < names.length; i++) {
+    const { dLat, dLng } = randomOffset(80, 600);
+    const v = {
+      id: `mock_${i}`,
+      name: names[i],
+      location: { lat: center.lat + dLat, lng: center.lng + dLng },
+      address: '123 Main St',
+    };
+    state.mock.venues.set(v.id, v);
+
+    // Generate recent posts to reflect activity
+    const count = Math.floor(Math.random() * 10);
+    const posts = [];
+    for (let j = 0; j < count; j++) {
+      const ageMs = Math.floor(Math.random() * FOUR_HOURS_MS);
+      const ts = new Date(Date.now() - ageMs);
+      const jitter = randomOffset(0, 30);
+      posts.push({
+        id: `${v.id}_p${j}`,
+        venueId: v.id,
+        venueName: v.name,
+        videoUrl: sampleVideo,
+        thumbnailUrl: null,
+        location: { lat: v.location.lat + jitter.dLat, lng: v.location.lng + jitter.dLng },
+        timestamp: ts,
+        expiresAt: new Date(ts.getTime() + FOUR_HOURS_MS),
+        userId: 'mock',
+        reportCount: 0,
+      });
+    }
+    state.mock.postsByVenue.set(v.id, posts);
+  }
+}
+
+export async function cleanupExpiredContent() {
   try {
     const now = Date.now();
     // Remove expired posts from state
